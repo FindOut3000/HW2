@@ -1,0 +1,70 @@
+# ---- 이 프로젝트 전용 ----
+# 프로젝트 안에 격리 설치한 파이썬 패키지 (약 1GB)
+vendor/
+# 내려받은 모델 가중치 (약 341MB) — prepare_models.py 로 재생성
+models/
+
+# ---- 파이썬 ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ---- 가상환경 ----
+.venv/
+venv/
+env/
+ENV/
+
+# ---- 비밀/인증 정보 ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.json
+credentials.json
+
+# ---- 실행 중 생성되는 파일 ----
+*.log
+logs/
+uploads/
+tmp/
+temp/
+.cache/
+*.pid
+
+# ---- 모델/데이터 캐시 ----
+.huggingface/
+huggingface/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.onnx
+
+# ---- 테스트 이미지 ----
+test_images/
+testimg/
+sample_images/
+static/__test_*
+
+# ---- 에디터 / OS ----
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ---- 테스트/커버리지 ----
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/

@@ -1,0 +1,16 @@
+# 검증 완료된 버전 조합 (macOS arm64 / Python 3.12.8 에서 동작 확인)
+# 설치: python3 -m pip install -r requirements.txt
+#  또는: python3 -m pip install --target ./vendor -r requirements.txt   (가상환경 없이 격리 설치)
+
+fastapi==0.162.0
+uvicorn[standard]==0.54.0
+python-multipart==0.0.33
+pillow==13.0.0
+
+# 추론 (CPU 전용 — 별도 CUDA 빌드 불필요)
+torch==2.15.0
+torchvision==0.29.2
+transformers==5.22.1
+
+# prepare_models.py 가 모델 가중치를 내려받을 때 사용
+huggingface_hub==2.4.0
