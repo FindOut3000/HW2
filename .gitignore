@@ -68,3 +68,22 @@ Thumbs.db
 htmlcov/
 .mypy_cache/
 .ruff_cache/
+
+# ---- GitHub Actions self-hosted runner ----
+# 러너는 ~/actions-runner 에 설치해 저장소 밖에 두지만,
+# 저장소 안에서 실행하거나 옮기는 경우에도 추적되지 않도록 함께 막는다.
+actions-runner/
+actions-runner-*.tar.gz
+# 러너 등록/실행 중 생성되는 파일 (토큰·작업 디렉터리·진단 로그)
+_work/
+_diag/
+.runner
+.credentials
+.credentials_rsaparams
+.credentials_rsautotoken
+.path
+.service
+svc.sh
+runsvc.sh
+*.runner
+actions.runner.*.plist
