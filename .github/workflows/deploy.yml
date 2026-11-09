@@ -255,42 +255,53 @@ jobs:
         run: |
           set -euo pipefail
           PROXY_DIR="$HOME/.catbreed-deploy"
-          mkdir -p "$PROXY_DIR"
+          CONF_DIR="$PROXY_DIR/conf.d"
+          mkdir -p "$CONF_DIR"
           echo "PROXY_DIR=$PROXY_DIR" >> "$GITHUB_ENV"
 
-          # 이전 설정을 보관해 두면 롤백 때 그대로 되돌릴 수 있다.
-          [ -f "$PROXY_DIR/nginx.conf" ] && cp "$PROXY_DIR/nginx.conf" "$PROXY_DIR/nginx.conf.prev" || true
+          # 설정은 "파일 하나"가 아니라 "디렉터리"로 마운트한다.
+          # Docker Desktop for Mac 에서 단일 파일 bind mount 는 호스트에서 그 파일을
+          # 덮어쓰는 순간 컨테이너 안에서 사라진다. 실제로 그렇게 깨졌다:
+          #   nginx: [emerg] open() "/etc/nginx/nginx.conf" failed (2: No such file or directory)
+          # 디렉터리 마운트는 안에서 파일을 다시 써도 그대로 보인다.
+          # nginx 기본 설정이 conf.d/*.conf 를 http 컨텍스트에 include 하므로
+          # upstream 과 server 블록만 넣으면 된다.
+          [ -f "$CONF_DIR/app.conf" ] && cp "$CONF_DIR/app.conf" "$PROXY_DIR/app.conf.prev" || true
 
-          cat > "$PROXY_DIR/nginx.conf" <<EOF
-          events { worker_connections 1024; }
-          http {
-            access_log off;
-            upstream app_upstream { server ${CONTAINER_NAME}-${TARGET_COLOR}:8000; }
-            server {
-              listen 8000;
-              client_max_body_size 20m;
-              proxy_connect_timeout 5s;
-              proxy_send_timeout 120s;
-              proxy_read_timeout 120s;
-              location / {
-                proxy_pass http://app_upstream;
-                proxy_set_header Host \$host;
-                proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-              }
+          cat > "$CONF_DIR/app.conf" <<EOF
+          upstream app_upstream { server ${CONTAINER_NAME}-${TARGET_COLOR}:8000; }
+          server {
+            listen 8000;
+            client_max_body_size 20m;
+            proxy_connect_timeout 5s;
+            proxy_send_timeout 120s;
+            proxy_read_timeout 120s;
+            location / {
+              proxy_pass http://app_upstream;
+              proxy_set_header Host \$host;
+              proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
             }
           }
           EOF
-          sed -i '' 's/^          //' "$PROXY_DIR/nginx.conf" 2>/dev/null || sed -i 's/^          //' "$PROXY_DIR/nginx.conf"
+          sed -i '' 's/^          //' "$CONF_DIR/app.conf" 2>/dev/null || sed -i 's/^          //' "$CONF_DIR/app.conf"
 
+          # 프록시가 없거나, 예전 방식(단일 파일 마운트)으로 떠 있으면 다시 만든다.
+          recreate=0
           if docker ps --format '{{.Names}}' | grep -qx "${PROXY_NAME}"; then
+            docker exec "${PROXY_NAME}" test -f /etc/nginx/conf.d/app.conf 2>/dev/null || recreate=1
+            [ "$recreate" = "1" ] && echo "::warning::프록시가 예전 마운트 방식으로 떠 있어 다시 만듭니다. 이번 전환에서만 짧은 공백이 생깁니다."
+          else
+            recreate=1
+            echo "::warning::프록시가 없어 최초 구성을 수행합니다. 이번 전환에서만 짧은 공백이 생깁니다."
+          fi
+
+          if [ "$recreate" = "0" ]; then
             # 평상시 경로: 설정만 바꾸고 graceful reload. 연결이 끊기지 않는다.
             docker exec "${PROXY_NAME}" nginx -t
             docker exec "${PROXY_NAME}" nginx -s reload
             echo "프록시 upstream 전환: → ${CONTAINER_NAME}-${TARGET_COLOR} (graceful reload)"
           else
-            # 최초 1회: 8000 을 쓰던 단일 컨테이너를 내리고 프록시를 올린다.
-            # 이 전환에서만 공백이 생기고, 이후 배포부터는 무중단이다.
-            echo "::warning::프록시가 없어 최초 구성을 수행합니다. 이번 전환에서만 짧은 공백이 생깁니다."
+            docker rm -f "${PROXY_NAME}" 2>/dev/null || true
             docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
             others="$(docker ps -q --filter "publish=${HOST_PORT}")"
             [ -n "$others" ] && docker rm -f $others || true
@@ -299,14 +310,16 @@ jobs:
               --network "${DOCKER_NET}" \
               --restart unless-stopped \
               -p "${HOST_PORT}:8000" \
-              -v "$PROXY_DIR/nginx.conf:/etc/nginx/nginx.conf:ro" \
+              -v "$CONF_DIR:/etc/nginx/conf.d:ro" \
               nginx:1.27-alpine
           fi
 
+          ok=0
           for i in $(seq 1 30); do
-            curl -fsS "http://127.0.0.1:${HOST_PORT}/api/health" >/dev/null 2>&1 && break
+            if curl -fsS "http://127.0.0.1:${HOST_PORT}/api/health" >/dev/null 2>&1; then ok=1; break; fi
             sleep 1
           done
+          [ "$ok" -eq 1 ] || { echo "::error::전환 후 프록시가 응답하지 않습니다."; docker logs --tail 50 "${PROXY_NAME}" 2>&1; exit 1; }
           docker ps --filter "name=cat-breed" --format '{{.Names}}  {{.Image}}  {{.Status}}  {{.Ports}}'
 
       - name: 서비스 검증 (프록시 경유)
@@ -356,9 +369,9 @@ jobs:
 
           if [ -n "${ACTIVE_COLOR}" ] && docker ps -q --filter "name=${CONTAINER_NAME}-${ACTIVE_COLOR}" | grep -q .; then
             echo "이전 색(${ACTIVE_COLOR})이 살아 있습니다. 프록시를 되돌립니다."
-            if [ -f "${PROXY_DIR}/nginx.conf.prev" ]; then
-              cp "${PROXY_DIR}/nginx.conf.prev" "${PROXY_DIR}/nginx.conf"
-              docker exec "${PROXY_NAME}" nginx -s reload
+            if [ -f "${PROXY_DIR}/app.conf.prev" ]; then
+              cp "${PROXY_DIR}/app.conf.prev" "${PROXY_DIR}/conf.d/app.conf"
+              docker exec "${PROXY_NAME}" nginx -t && docker exec "${PROXY_NAME}" nginx -s reload
             fi
             docker rm -f "${CONTAINER_NAME}-${TARGET_COLOR}"
             echo "롤백 완료 — ${CONTAINER_NAME}-${ACTIVE_COLOR} 가 계속 서비스합니다."
