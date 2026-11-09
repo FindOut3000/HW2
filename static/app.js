@@ -259,6 +259,11 @@ function render(data) {
     ['품종 모델', data.model.breed],
     ['모델 참고', data.model.breed_note],
     ['연산 장치', data.model.device.toUpperCase()],
+    // 어느 배포에서 나온 결과인지 화면에서 바로 확인할 수 있게 한다.
+    ['전처리 모드', data.model.preprocess
+      ? `${data.model.preprocess} (게이트 ${data.model.views.gate}뷰 · 품종 ${data.model.views.breed}뷰)`
+      : 'legacy (1뷰)'],
+    ['배포 버전', data.version ? data.version.build : '-'],
   ]);
 
   el.disclaimer.textContent = data.disclaimer;
