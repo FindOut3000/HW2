@@ -1,0 +1,16 @@
+.git
+.github
+.gitignore
+vendor/
+models/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.log
+.DS_Store
+.vscode/
+.idea/
+*.docx
+*.pdf
+README.md

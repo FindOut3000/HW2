@@ -103,6 +103,78 @@ export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 python3 app.py
 ```
 
+## Docker 로 실행하기
+
+로컬에 Python 을 설치하지 않고 바로 실행할 수 있습니다.
+모델 가중치는 이미지 안에 포함되어 있어 **실행 시 모델 다운로드가 필요 없습니다.**
+
+```bash
+docker run --rm -p 8000:8000 <DOCKERHUB_USERNAME>/cat-breed-estimator:latest
+```
+
+직접 빌드하려면:
+
+```bash
+docker build -t cat-breed-estimator .
+```
+
+```bash
+docker run --rm -p 8000:8000 cat-breed-estimator
+```
+
+| 항목 | 값 |
+|---|---|
+| 베이스 이미지 | `python:3.12.8-slim-bookworm` |
+| 이미지 크기 | 약 1.84GB (모델 341MB 포함) |
+| 실행 사용자 | `appuser` (비root, uid 10001) |
+| 노출 포트 | `8000` |
+| 헬스체크 | `/api/health` 가 `ready: true` 를 반환하는지 30초 간격 확인 |
+
+환경 변수 `HOST`(기본 `0.0.0.0`), `PORT`(기본 `8000`) 로 바인딩을 바꿀 수 있습니다.
+
+### 의존성 고정
+
+리눅스에서 PyPI 의 기본 `torch` 휠은 CUDA 런타임을 포함해 이미지가 수 GB 로 커집니다.
+그래서 Docker 빌드는 `requirements-docker.txt` 의 CPU 전용 휠을 사용합니다.
+
+| | 로컬 (macOS) | Docker (Linux) |
+|---|---|---|
+| 의존성 파일 | `requirements.txt` | `requirements-docker.txt` |
+| torch | `2.15.0` | `2.15.0+cpu` |
+| torchvision | `0.29.2` | `0.29.1+cpu` |
+
+`torch==2.15.0+cpu` 같은 로컬 버전 태그는 PyPI 에 존재하지 않으므로 PyTorch CPU 인덱스에서만
+해석되며, 결과적으로 해석 결과가 결정론적으로 고정됩니다.
+빌드 중 설치된 버전이 위 고정값과 일치하는지 자동으로 검사하고, 다르면 빌드가 실패합니다.
+
+## CI / 자동 배포
+
+`.github/workflows/ci.yml` 이 `main` 브랜치 push 시 다음을 수행합니다.
+
+1. `linux/amd64` 이미지 빌드 — 이 과정에서 **의존성 버전 검증**과 **모델 로드 검증**(가중치를 올리고 순전파 1회 실행)이 수행됩니다.
+2. 컨테이너를 띄워 스모크 테스트 — 헬스체크, 비root 실행, 라벨 48개, 추론 응답, 오류 처리(415/400), UI 200 확인
+3. 검증을 모두 통과한 경우에만 Docker Hub 로 업로드
+
+Pull Request 에서는 빌드와 검증만 수행하고 업로드하지 않습니다.
+
+### 필요한 GitHub Secrets
+
+저장소의 **Settings → Secrets and variables → Actions** 에 다음을 등록해야 합니다.
+
+| 이름 | 설명 |
+|---|---|
+| `DOCKERHUB_USERNAME` | Docker Hub 사용자명 (이미지 이름 `<사용자명>/cat-breed-estimator` 에도 사용) |
+| `DOCKERHUB_TOKEN` | Docker Hub Access Token (비밀번호가 아닌 토큰 권장) |
+
+시크릿이 없으면 업로드 단계는 건너뛰고 빌드·검증만 수행합니다.
+
+### 생성되는 태그
+
+| 조건 | 태그 |
+|---|---|
+| `main` 브랜치 push | `latest`, `main`, `sha-<커밋>` |
+| `v*` 태그 push | `<버전>`, `latest` |
+
 ## API
 
 | 메서드 | 경로 | 설명 |
@@ -152,7 +224,12 @@ curl -X POST -F "file=@cat.jpg" http://127.0.0.1:8000/api/analyze
 ├── app.py              FastAPI 서버 + 2단계 추론 파이프라인
 ├── prepare_models.py   모델 가중치 다운로드 스크립트
 ├── run.sh              실행 스크립트 (PYTHONPATH·오프라인 설정 처리)
-├── requirements.txt    의존성 목록
+├── requirements.txt    의존성 목록 (로컬 / macOS)
+├── requirements-docker.txt  의존성 목록 (Docker / Linux CPU)
+├── Dockerfile          CPU 전용 이미지 정의
+├── .dockerignore
+├── .github/workflows/
+│   └── ci.yml          빌드 · 검증 · Docker Hub 업로드
 ├── static/
 │   ├── index.html      UI 구조
 │   ├── style.css       스타일
