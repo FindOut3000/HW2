@@ -170,11 +170,11 @@ jobs:
           for i in $(seq 1 30); do
             ok=$(grep -c '"analysis_ok": true' "$LOG" 2>/dev/null || true)
             ok=${ok:-0}
-            [ "$ok" -ge 2 ] && break
+            [ "$ok" -ge 3 ] && break
             sleep 2
           done
 
-          if [ "$ok" -ge 2 ]; then
+          if [ "$ok" -ge 3 ]; then
             echo "배포 전 정상 응답 ${ok}건 확인 — 재배포를 진행합니다."
             tail -3 "${LOGDIR}/monitor.out"
           elif [ "$running" -eq 1 ]; then
@@ -330,17 +330,15 @@ jobs:
         run: |
           set +e
           [ -f "${LOGDIR}/monitor.jsonl" ] || { echo "모니터 로그가 없습니다."; exit 0; }
+          TAG="${IMAGE_DEPLOYED##*:}"
           /usr/bin/python3 scripts/deploy_summary.py \
             --log "${LOGDIR}/monitor.jsonl" \
             --summary-out "${LOGDIR}/summary.md" \
             --url "http://127.0.0.1:${HOST_PORT}" \
+            --image-tag "${TAG:-(교체 전 실패)}" \
             --deploy-result "${{ job.status }}"
-          {
-            echo ""
-            echo "| 배포 이미지 | 실행 | Actions |"
-            echo "| --- | --- | --- |"
-            echo "| \`${IMAGE_DEPLOYED:-(교체 전 실패)}\` | http://localhost:${HOST_PORT} | [실행 #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |"
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "서비스 http://localhost:${HOST_PORT} · [Actions 실행 #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> "$GITHUB_STEP_SUMMARY"
 
       - name: 검증 로그 업로드 (UTF-8)
         if: always()
