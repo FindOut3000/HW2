@@ -3,8 +3,8 @@ name: Deploy
 # CI 워크플로가 Docker Hub 업로드까지 성공으로 끝나면,
 # 집에 있는 macOS self-hosted runner 에서 로컬 컨테이너를 새 이미지로 교체한다.
 #
-# 러너 환경: macOS 27 (Apple Silicon / arm64), Docker Desktop
-# CI 가 올리는 이미지는 linux/amd64 이므로 Rosetta/QEMU 에뮬레이션으로 실행한다.
+# 러너 환경: macOS 27 (Apple Silicon / arm64), Docker Desktop, LaunchAgent 서비스로 상주
+# CI 가 올리는 이미지는 linux/amd64 이므로 Rosetta 에뮬레이션으로 실행한다.
 on:
   workflow_run:
     workflows: ["CI"]          # CI 워크플로의 name: 과 정확히 일치해야 한다
@@ -39,11 +39,11 @@ jobs:
       HOST_PORT: '8000'
       # CI 는 linux/amd64 단일 플랫폼으로 올린다. Apple Silicon 에서는 에뮬레이션이 필요하다.
       PLATFORM: linux/amd64
-      # 모델 로드(341MB) + amd64 에뮬레이션이라 기동이 느리다. 최대 12분까지 기다린다.
+      # 모델 로드(341MB) + amd64 에뮬레이션을 감안한 상한. 준비되면 즉시 넘어간다.
       HEALTH_TIMEOUT_SEC: '720'
 
     steps:
-      # LaunchAgent(svc.sh)로 띄운 러너는 PATH 가 최소값이라 docker 를 찾지 못한다.
+      # LaunchAgent(svc.sh)로 띄운 러너는 PATH 가 최소값일 수 있어 docker 를 찾지 못한다.
       - name: PATH 보정 및 Docker 준비 확인
         run: |
           set -euo pipefail
@@ -67,6 +67,35 @@ jobs:
 
           echo "docker: $(command -v docker)"
           docker version --format 'client {{.Client.Version}} / server {{.Server.Version}} ({{.Server.Os}}/{{.Server.Arch}})'
+
+          # 다음 단계에서 DOCKER_CONFIG 를 작업 전용 디렉터리로 바꾸면 context 설정이
+          # 함께 사라져 데몬 주소를 잃는다. 지금 쓰는 소켓을 먼저 읽어 고정해 둔다.
+          host="$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)"
+          if [ -n "$host" ]; then
+            echo "DOCKER_HOST=$host" >> "$GITHUB_ENV"
+            echo "DOCKER_HOST=$host 로 고정"
+          fi
+
+      # macOS 키체인 우회 — 이 단계가 없으면 docker/login-action 이 아래 오류로 실패한다.
+      #   error saving credentials - err: exit status 1,
+      #   out: `User interaction is not allowed. (-25308)`
+      # 기본 설정(~/.docker/config.json)은 credsStore=desktop 이라 로그인 성공 후
+      # 자격 증명을 macOS 키체인에 저장하려 하는데, LaunchAgent 로 상주하는 러너에는
+      # GUI 세션이 없어 키체인에 쓸 수 없다.
+      - name: Docker 자격 증명 저장소 준비
+        run: |
+          set -euo pipefail
+          cfg="${{ runner.temp }}/docker-config"
+          rm -rf "$cfg"
+          mkdir -p "$cfg"
+          chmod 700 "$cfg"
+          # credsStore 를 지정하지 않은 빈 설정 — 자격 증명은 이 디렉터리 안에만 남고,
+          # 작업이 끝나면 docker/login-action 의 post 단계(docker logout)가 지운다.
+          printf '{}' > "$cfg/config.json"
+          chmod 600 "$cfg/config.json"
+          echo "DOCKER_CONFIG=$cfg" >> "$GITHUB_ENV"
+
+          DOCKER_CONFIG="$cfg" docker info --format '데몬 확인 OK — {{.ServerVersion}} ({{.OSType}}/{{.Architecture}})'
 
       - name: 배포 대상 결정
         id: target
@@ -126,7 +155,7 @@ jobs:
           LATEST='${{ steps.target.outputs.repo }}:latest'
 
           if docker pull --platform "${PLATFORM}" "$IMAGE"; then
-            echo "pulled=$IMAGE"
+            echo "내려받음: $IMAGE"
           else
             echo "::warning::${IMAGE} 를 내려받지 못했습니다. ${LATEST} 로 대체합니다."
             docker pull --platform "${PLATFORM}" "$LATEST"
@@ -137,6 +166,8 @@ jobs:
         run: |
           set -euo pipefail
           IMAGE="${IMAGE_OVERRIDE:-${{ steps.target.outputs.image }}}"
+          # 이 변수가 설정됐다는 것은 "이 실행이 컨테이너를 건드렸다"는 표시이기도 하다.
+          # 아래 실패 처리 단계는 이 값이 있을 때만 동작한다.
           echo "IMAGE_DEPLOYED=$IMAGE" >> "$GITHUB_ENV"
 
           # 같은 포트를 쓰는 다른 컨테이너가 남아 있으면 교체가 실패하므로 함께 정리한다.
@@ -158,11 +189,11 @@ jobs:
             --format '{{.Names}}  {{.Image}}  {{.Status}}  {{.Ports}}'
 
       - name: 서비스 기동 대기 및 검증
-        id: verify
         run: |
           set -euo pipefail
           BASE="http://127.0.0.1:${HOST_PORT}"
           deadline=$(( $(date +%s) + HEALTH_TIMEOUT_SEC ))
+          started=$(date +%s)
 
           echo "::group::헬스 체크 대기 (${BASE}/api/health)"
           ready=0
@@ -182,7 +213,7 @@ jobs:
             echo "::error::${HEALTH_TIMEOUT_SEC}초 안에 서비스가 준비되지 않았습니다."
             exit 1
           fi
-          echo "health OK"
+          echo "health OK ($(( $(date +%s) - started ))초 만에 준비)"
 
           echo "::group::서비스 응답 검증"
           count=$(curl -fsS "${BASE}/api/breeds" | python3 -c 'import json,sys; print(json.load(sys.stdin)["count"])')
@@ -192,10 +223,16 @@ jobs:
           code=$(curl -s -o /dev/null -w '%{http_code}' "${BASE}/")
           echo "UI 응답 코드: $code"
           [ "$code" = "200" ] || { echo "::error::UI 기대 200, 실제 $code"; exit 1; }
+
+          # 컨테이너 안에서 실제로 어떤 아키텍처/사용자로 돌고 있는지 남겨 둔다.
+          echo "컨테이너 아키텍처: $(docker exec "${CONTAINER_NAME}" uname -m)"
+          echo "실행 사용자: $(docker exec "${CONTAINER_NAME}" id -un)"
           echo "::endgroup::"
 
+      # IMAGE_DEPLOYED 가 비어 있으면 교체 단계 전에 실패한 것이므로
+      # 돌고 있는 컨테이너에 손대지 않는다. (예: 로그인 실패)
       - name: 실패 시 로그 수집 및 롤백
-        if: failure()
+        if: failure() && env.IMAGE_DEPLOYED != ''
         env:
           PREV_IMAGE: ${{ steps.prev.outputs.image_id }}
         run: |
@@ -222,14 +259,19 @@ jobs:
             docker rm -f "${CONTAINER_NAME}"
           fi
 
-      - name: 사용하지 않는 이미지 정리
+      - name: 이미지 정리 및 현황
         if: success()
         run: |
           set -euo pipefail
-          # 교체로 참조가 끊긴 이전 태그/레이어만 정리한다. (실행 중 컨테이너는 보존)
-          docker image prune -f >/dev/null 2>&1 || true
-          docker images '${{ steps.target.outputs.repo }}' \
-            --format '{{.Repository}}:{{.Tag}}  {{.Size}}' || true
+          repo='${{ steps.target.outputs.repo }}'
+          # 교체로 참조가 끊긴 이 저장소의 태그 없는 이미지만 지운다.
+          # (docker image prune 은 다른 프로젝트의 이미지까지 건드리므로 쓰지 않는다)
+          dangling="$(docker images "$repo" --filter dangling=true -q | sort -u)"
+          if [ -n "$dangling" ]; then
+            echo "태그 없는 이전 이미지 정리: $dangling"
+            docker rmi $dangling || true
+          fi
+          docker images "$repo" --format '{{.Repository}}:{{.Tag}}  {{.Size}}' || true
 
       - name: 배포 결과 요약
         if: success()
