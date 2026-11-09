@@ -157,6 +157,20 @@ docker run --rm -p 8000:8000 cat-breed-estimator
 
 Pull Request 에서는 빌드와 검증만 수행하고 업로드하지 않습니다.
 
+CI 가 업로드까지 성공하면 `.github/workflows/deploy.yml` 이 `workflow_run` 으로 이어서 실행되어,
+집에 있는 macOS self-hosted runner 가 로컬 컨테이너를 새 이미지로 교체합니다.
+
+배포 워크플로는 **서비스를 건드리기 전에** 독립된 모니터링 프로세스를 먼저 띄웁니다.
+고정 테스트 이미지(`scripts/probe_image.py` 가 생성, 항상 같은 바이트)를 실제 `/api/analyze` 에
+보내고, 응답이 끝나면 1초를 쉬었다가 다음 요청을 보냅니다. 배포 전 정상 응답을 확인한 뒤에야
+교체를 시작하고, 교체 중과 완료 후 30초까지 관측을 유지합니다.
+
+요청마다 시작·종료 시각, 응답 시간, HTTP 상태, 분석 정상 여부, **그 응답을 돌려준 배포 버전**
+(`version.build`)을 기록합니다. 결과는 Actions 로그에 요청 단위로 출력되고, 실행 Summary 에
+검증 주소·시간, 구간별 대표 응답, 버전 전환, 성공/실패 건수, 실제 요청 간격과 최대 기록 공백이
+정리됩니다. 전체 로그는 UTF-8 로 Artifacts(`deploy-verification-<번호>`) 에 올라가며,
+배포가 실패해도 로그와 요약은 남습니다.
+
 ### 필요한 GitHub Secrets
 
 저장소의 **Settings → Secrets and variables → Actions** 에 다음을 등록해야 합니다.
@@ -229,7 +243,19 @@ curl -X POST -F "file=@cat.jpg" http://127.0.0.1:8000/api/analyze
 ├── Dockerfile          CPU 전용 이미지 정의
 ├── .dockerignore
 ├── .github/workflows/
-│   └── ci.yml          빌드 · 검증 · Docker Hub 업로드
+│   ├── ci.yml          빌드 · 검증 · Docker Hub 업로드
+│   └── deploy.yml      self-hosted runner 로컬 배포 + 무중단 검증
+├── scripts/
+│   ├── probe_image.py    배포 검증용 고정 테스트 이미지 생성
+│   ├── deploy_monitor.py 배포 중 가용성 모니터 (독립 프로세스)
+│   └── deploy_summary.py 모니터 로그 → Actions 로그 / Step Summary
+├── eval/
+│   ├── fetch_data.py   공개 데이터 100장 수집 + 30/70 분할
+│   ├── run_eval.py     평가 실행
+│   ├── compare.py      변경 전/후 비교표 생성
+│   ├── RESULTS.md      성능 비교 결과
+│   ├── out/            평가 결과 JSON
+│   └── data/           (git 제외) 평가 이미지 — fetch_data.py 로 재현
 ├── static/
 │   ├── index.html      UI 구조
 │   ├── style.css       스타일
@@ -237,6 +263,39 @@ curl -X POST -F "file=@cat.jpg" http://127.0.0.1:8000/api/analyze
 ├── models/             (git 제외) prepare_models.py 가 생성
 └── vendor/             (git 제외) A안 설치 시 생성
 ```
+
+## 모델 업데이트 (v1.1.0) — 전처리 개선
+
+재학습 없이 **추론 전처리만** 바꿔 정확도를 올렸습니다. 가중치는 그대로입니다.
+
+오류 분석에서 두 가지 원인을 찾았습니다.
+
+| 문제 | 원인 |
+|---|---|
+| 품종 오답 | 품종 전처리가 `size:{224,224}` 고정이라 **종횡비를 무시하고 늘림**. 오답 이미지의 평균 종횡비 1.45 (정답 1.15) |
+| "고양이를 찾지 못함" 오판 | 게이트 전처리가 짧은 변 256 → **중앙 224 크롭** 이라, 긴 사진에서 고양이가 프레임 밖으로 잘림 |
+
+적용한 개선(`PREPROCESS_MODE=v2`):
+
+- 게이트: 기존 중앙 크롭 뷰 + 전체가 보이는 정사각형 패딩 뷰, 두 뷰 점수의 **max**
+  (탐지 단계라 평균은 오히려 재현율을 떨어뜨립니다 — 시도 1회차에서 확인)
+- 품종: 기존에 늘린 뷰(학습 분포와 동일) + 종횡비를 보존한 패딩 뷰, 두 뷰 확률의 **평균**
+
+평가 70장(튜닝에 사용하지 않은 분할) 기준 변경 전 → 후:
+
+| 지표 | 변경 전 | 변경 후 |
+|---|---:|---:|
+| top-1 정확도 | 81.4% | **84.3%** |
+| 고양이 인식 성공률 | 88.6% | **91.4%** |
+| 야생 고양이과 오판율 | 2.9% | **0.0%** |
+| 평균 추론 지연 | 92ms | 205ms |
+
+자세한 내용은 [eval/RESULTS.md](eval/RESULTS.md) 를 보세요.
+평가 데이터는 `timm/oxford-iiit-pet` (CC BY-SA 4.0, 공개) 에서 고양이 12품종 100장을 받아
+튜닝 30장 / 평가 70장으로 나눴고, 이미지 파일은 커밋하지 않습니다
+(`python3 eval/fetch_data.py` 로 재현).
+
+`PREPROCESS_MODE` 환경변수로 `legacy` 를 주면 1.0.0 과 동일하게 동작합니다.
 
 ## 48개 라벨에 대한 참고
 

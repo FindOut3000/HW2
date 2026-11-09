@@ -1,0 +1,695 @@
+{
+  "summary": {
+    "name": "attempt1_v1",
+    "split": "tune",
+    "preprocess_mode": "v1",
+    "n": 30,
+    "top1_accuracy": 0.8667,
+    "top5_accuracy": 1.0,
+    "cat_detected_rate": 0.8667,
+    "no_cat_rate": 0.1333,
+    "wild_cat_rate": 0.0,
+    "pattern_label_rate": 0.0,
+    "mean_top1_prob": 0.8453,
+    "mean_latency_ms": 173,
+    "total_seconds": 5.3,
+    "per_breed": {
+      "Abyssinian": {
+        "n": 3,
+        "top1": 1.0,
+        "top5": 1.0
+      },
+      "Bengal": {
+        "n": 3,
+        "top1": 1.0,
+        "top5": 1.0
+      },
+      "Birman": {
+        "n": 3,
+        "top1": 0.6667,
+        "top5": 1.0
+      },
+      "Bombay": {
+        "n": 3,
+        "top1": 0.3333,
+        "top5": 1.0
+      },
+      "British Shorthair": {
+        "n": 3,
+        "top1": 1.0,
+        "top5": 1.0
+      },
+      "Egyptian Mau": {
+        "n": 3,
+        "top1": 1.0,
+        "top5": 1.0
+      },
+      "Maine Coon": {
+        "n": 2,
+        "top1": 0.5,
+        "top5": 1.0
+      },
+      "Persian": {
+        "n": 2,
+        "top1": 1.0,
+        "top5": 1.0
+      },
+      "Ragdoll": {
+        "n": 2,
+        "top1": 1.0,
+        "top5": 1.0
+      },
+      "Russian Blue": {
+        "n": 2,
+        "top1": 1.0,
+        "top5": 1.0
+      },
+      "Siamese": {
+        "n": 2,
+        "top1": 1.0,
+        "top5": 1.0
+      },
+      "Sphynx": {
+        "n": 2,
+        "top1": 1.0,
+        "top5": 1.0
+      }
+    },
+    "top_confusions": [
+      [
+        "Bombay -> Oriental Short Hair",
+        2
+      ],
+      [
+        "Birman -> Ragdoll",
+        1
+      ],
+      [
+        "Maine Coon -> Turkish Angora",
+        1
+      ]
+    ]
+  },
+  "records": [
+    {
+      "file": "abyssinian__Abyssinian_202.jpg",
+      "expected": "Abyssinian",
+      "top1": "Abyssinian",
+      "top1_prob": 0.5313,
+      "top1_is_pattern": false,
+      "top5": [
+        "Abyssinian",
+        "British Shorthair",
+        "Munchkin",
+        "American Bobtail",
+        "Exotic Shorthair"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.9593,
+      "wild_feline_score": 0.0052,
+      "elapsed_ms": 196
+    },
+    {
+      "file": "abyssinian__Abyssinian_67.jpg",
+      "expected": "Abyssinian",
+      "top1": "Abyssinian",
+      "top1_prob": 0.9972,
+      "top1_is_pattern": false,
+      "top5": [
+        "Abyssinian",
+        "Egyptian Mau",
+        "Oriental Short Hair",
+        "Havana",
+        "Birman"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.7578,
+      "wild_feline_score": 0.0719,
+      "elapsed_ms": 172
+    },
+    {
+      "file": "abyssinian__Abyssinian_7.jpg",
+      "expected": "Abyssinian",
+      "top1": "Abyssinian",
+      "top1_prob": 0.9969,
+      "top1_is_pattern": false,
+      "top5": [
+        "Abyssinian",
+        "Egyptian Mau",
+        "Sphynx",
+        "Ragamuffin",
+        "Birman"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.8626,
+      "wild_feline_score": 0.008,
+      "elapsed_ms": 171
+    },
+    {
+      "file": "bengal__Bengal_35.jpg",
+      "expected": "Bengal",
+      "top1": "Bengal",
+      "top1_prob": 0.9765,
+      "top1_is_pattern": false,
+      "top5": [
+        "Bengal",
+        "Egyptian Mau",
+        "Oriental Short Hair",
+        "Exotic Shorthair",
+        "Tonkinese"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.7811,
+      "wild_feline_score": 0.0212,
+      "elapsed_ms": 172
+    },
+    {
+      "file": "bengal__Bengal_75.jpg",
+      "expected": "Bengal",
+      "top1": "Bengal",
+      "top1_prob": 0.9825,
+      "top1_is_pattern": false,
+      "top5": [
+        "Bengal",
+        "Egyptian Mau",
+        "Exotic Shorthair",
+        "Torbie",
+        "Tonkinese"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.282,
+      "wild_feline_score": 0.0076,
+      "elapsed_ms": 173
+    },
+    {
+      "file": "bengal__Bengal_86.jpg",
+      "expected": "Bengal",
+      "top1": "Bengal",
+      "top1_prob": 0.9836,
+      "top1_is_pattern": false,
+      "top5": [
+        "Bengal",
+        "Egyptian Mau",
+        "Exotic Shorthair",
+        "Tiger",
+        "Tabby"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.5812,
+      "wild_feline_score": 0.1249,
+      "elapsed_ms": 172
+    },
+    {
+      "file": "birman__Birman_35.jpg",
+      "expected": "Birman",
+      "top1": "Ragdoll",
+      "top1_prob": 0.7759,
+      "top1_is_pattern": false,
+      "top5": [
+        "Ragdoll",
+        "Himalayan",
+        "Birman",
+        "Siamese",
+        "Snowshoe"
+      ],
+      "correct_top1": false,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.7246,
+      "wild_feline_score": 0.0053,
+      "elapsed_ms": 172
+    },
+    {
+      "file": "birman__Birman_4.jpg",
+      "expected": "Birman",
+      "top1": "Birman",
+      "top1_prob": 0.93,
+      "top1_is_pattern": false,
+      "top5": [
+        "Birman",
+        "Ragdoll",
+        "Snowshoe",
+        "Himalayan",
+        "Siamese"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.9013,
+      "wild_feline_score": 0.002,
+      "elapsed_ms": 174
+    },
+    {
+      "file": "birman__Birman_62.jpg",
+      "expected": "Birman",
+      "top1": "Birman",
+      "top1_prob": 0.6542,
+      "top1_is_pattern": false,
+      "top5": [
+        "Birman",
+        "Himalayan",
+        "Ragdoll",
+        "Persian",
+        "Burmese"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.1406,
+      "wild_feline_score": 0.0024,
+      "elapsed_ms": 171
+    },
+    {
+      "file": "bombay__Bombay_66.jpg",
+      "expected": "Bombay",
+      "top1": "Bombay",
+      "top1_prob": 0.938,
+      "top1_is_pattern": false,
+      "top5": [
+        "Bombay",
+        "Manx",
+        "American Bobtail",
+        "American Shorthair",
+        "Extra-Toes Cat - Hemingway Polydactyl"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.7336,
+      "wild_feline_score": 0.0181,
+      "elapsed_ms": 173
+    },
+    {
+      "file": "bombay__Bombay_80.jpg",
+      "expected": "Bombay",
+      "top1": "Oriental Short Hair",
+      "top1_prob": 0.4508,
+      "top1_is_pattern": false,
+      "top5": [
+        "Oriental Short Hair",
+        "Bombay",
+        "Egyptian Mau",
+        "Burmese",
+        "American Shorthair"
+      ],
+      "correct_top1": false,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.6787,
+      "wild_feline_score": 0.0143,
+      "elapsed_ms": 170
+    },
+    {
+      "file": "bombay__Bombay_94.jpg",
+      "expected": "Bombay",
+      "top1": "Oriental Short Hair",
+      "top1_prob": 0.5724,
+      "top1_is_pattern": false,
+      "top5": [
+        "Oriental Short Hair",
+        "Bombay",
+        "Burmese",
+        "Egyptian Mau",
+        "American Shorthair"
+      ],
+      "correct_top1": false,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.9206,
+      "wild_feline_score": 0.0051,
+      "elapsed_ms": 172
+    },
+    {
+      "file": "british_shorthair__British_Shorthair_269.jpg",
+      "expected": "British Shorthair",
+      "top1": "British Shorthair",
+      "top1_prob": 0.9879,
+      "top1_is_pattern": false,
+      "top5": [
+        "British Shorthair",
+        "Russian Blue",
+        "Exotic Shorthair",
+        "Munchkin",
+        "Manx"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.7947,
+      "wild_feline_score": 0.0348,
+      "elapsed_ms": 174
+    },
+    {
+      "file": "british_shorthair__British_Shorthair_42.jpg",
+      "expected": "British Shorthair",
+      "top1": "British Shorthair",
+      "top1_prob": 0.9047,
+      "top1_is_pattern": false,
+      "top5": [
+        "British Shorthair",
+        "Russian Blue",
+        "Scottish Fold",
+        "Manx",
+        "Munchkin"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.6446,
+      "wild_feline_score": 0.0759,
+      "elapsed_ms": 172
+    },
+    {
+      "file": "british_shorthair__British_Shorthair_70.jpg",
+      "expected": "British Shorthair",
+      "top1": "British Shorthair",
+      "top1_prob": 0.9551,
+      "top1_is_pattern": false,
+      "top5": [
+        "British Shorthair",
+        "Russian Blue",
+        "Manx",
+        "Burmese",
+        "Munchkin"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.8239,
+      "wild_feline_score": 0.0105,
+      "elapsed_ms": 172
+    },
+    {
+      "file": "egyptian_mau__Egyptian_Mau_39.jpg",
+      "expected": "Egyptian Mau",
+      "top1": "Egyptian Mau",
+      "top1_prob": 0.9745,
+      "top1_is_pattern": false,
+      "top5": [
+        "Egyptian Mau",
+        "Bengal",
+        "Abyssinian",
+        "Torbie",
+        "Tiger"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.9579,
+      "wild_feline_score": 0.0107,
+      "elapsed_ms": 171
+    },
+    {
+      "file": "egyptian_mau__Egyptian_Mau_42.jpg",
+      "expected": "Egyptian Mau",
+      "top1": "Egyptian Mau",
+      "top1_prob": 0.9934,
+      "top1_is_pattern": false,
+      "top5": [
+        "Egyptian Mau",
+        "Bengal",
+        "Abyssinian",
+        "Exotic Shorthair",
+        "Tiger"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.8868,
+      "wild_feline_score": 0.0168,
+      "elapsed_ms": 170
+    },
+    {
+      "file": "egyptian_mau__Egyptian_Mau_62.jpg",
+      "expected": "Egyptian Mau",
+      "top1": "Egyptian Mau",
+      "top1_prob": 0.9934,
+      "top1_is_pattern": false,
+      "top5": [
+        "Egyptian Mau",
+        "Bengal",
+        "Exotic Shorthair",
+        "Abyssinian",
+        "Domestic Short Hair"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.8396,
+      "wild_feline_score": 0.0216,
+      "elapsed_ms": 172
+    },
+    {
+      "file": "maine_coon__Maine_Coon_39.jpg",
+      "expected": "Maine Coon",
+      "top1": "Turkish Angora",
+      "top1_prob": 0.524,
+      "top1_is_pattern": false,
+      "top5": [
+        "Turkish Angora",
+        "Domestic Long Hair",
+        "Domestic Medium Hair",
+        "Maine Coon",
+        "Turkish Van"
+      ],
+      "correct_top1": false,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.512,
+      "wild_feline_score": 0.1595,
+      "elapsed_ms": 172
+    },
+    {
+      "file": "maine_coon__Maine_Coon_44.jpg",
+      "expected": "Maine Coon",
+      "top1": "Maine Coon",
+      "top1_prob": 0.2413,
+      "top1_is_pattern": false,
+      "top5": [
+        "Maine Coon",
+        "Manx",
+        "American Bobtail",
+        "Norwegian Forest",
+        "Tiger"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.4993,
+      "wild_feline_score": 0.0588,
+      "elapsed_ms": 172
+    },
+    {
+      "file": "persian__Persian_26.jpg",
+      "expected": "Persian",
+      "top1": "Persian",
+      "top1_prob": 0.9793,
+      "top1_is_pattern": false,
+      "top5": [
+        "Persian",
+        "Himalayan",
+        "Exotic Shorthair",
+        "Siberian",
+        "Turkish Angora"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.9455,
+      "wild_feline_score": 0.002,
+      "elapsed_ms": 171
+    },
+    {
+      "file": "persian__Persian_261.jpg",
+      "expected": "Persian",
+      "top1": "Persian",
+      "top1_prob": 0.8811,
+      "top1_is_pattern": false,
+      "top5": [
+        "Persian",
+        "Himalayan",
+        "Ragdoll",
+        "Siberian",
+        "Exotic Shorthair"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.8412,
+      "wild_feline_score": 0.0046,
+      "elapsed_ms": 173
+    },
+    {
+      "file": "ragdoll__Ragdoll_71.jpg",
+      "expected": "Ragdoll",
+      "top1": "Ragdoll",
+      "top1_prob": 0.6716,
+      "top1_is_pattern": false,
+      "top5": [
+        "Ragdoll",
+        "Snowshoe",
+        "Siamese",
+        "Himalayan",
+        "Birman"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "no_cat",
+      "domestic_cat_score": 0.0746,
+      "wild_feline_score": 0.0104,
+      "elapsed_ms": 173
+    },
+    {
+      "file": "ragdoll__Ragdoll_93.jpg",
+      "expected": "Ragdoll",
+      "top1": "Ragdoll",
+      "top1_prob": 0.8126,
+      "top1_is_pattern": false,
+      "top5": [
+        "Ragdoll",
+        "Birman",
+        "Himalayan",
+        "Siamese",
+        "Snowshoe"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "no_cat",
+      "domestic_cat_score": 0.0546,
+      "wild_feline_score": 0.0024,
+      "elapsed_ms": 172
+    },
+    {
+      "file": "russian_blue__Russian_Blue_86.jpg",
+      "expected": "Russian Blue",
+      "top1": "Russian Blue",
+      "top1_prob": 0.9576,
+      "top1_is_pattern": false,
+      "top5": [
+        "Russian Blue",
+        "Dilute Tortoiseshell",
+        "Oriental Short Hair",
+        "American Shorthair",
+        "Dilute Calico"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.9247,
+      "wild_feline_score": 0.0198,
+      "elapsed_ms": 171
+    },
+    {
+      "file": "russian_blue__Russian_Blue_93.jpg",
+      "expected": "Russian Blue",
+      "top1": "Russian Blue",
+      "top1_prob": 0.9423,
+      "top1_is_pattern": false,
+      "top5": [
+        "Russian Blue",
+        "Oriental Short Hair",
+        "American Shorthair",
+        "Burmese",
+        "Dilute Tortoiseshell"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.6175,
+      "wild_feline_score": 0.0102,
+      "elapsed_ms": 171
+    },
+    {
+      "file": "siamese__Siamese_6.jpg",
+      "expected": "Siamese",
+      "top1": "Siamese",
+      "top1_prob": 0.9378,
+      "top1_is_pattern": false,
+      "top5": [
+        "Siamese",
+        "Oriental Short Hair",
+        "Applehead Siamese",
+        "Tonkinese",
+        "Snowshoe"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.9009,
+      "wild_feline_score": 0.0142,
+      "elapsed_ms": 171
+    },
+    {
+      "file": "siamese__Siamese_84.jpg",
+      "expected": "Siamese",
+      "top1": "Siamese",
+      "top1_prob": 0.8162,
+      "top1_is_pattern": false,
+      "top5": [
+        "Siamese",
+        "Snowshoe",
+        "Ragdoll",
+        "Himalayan",
+        "Cornish Rex"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "ok",
+      "domestic_cat_score": 0.8951,
+      "wild_feline_score": 0.0018,
+      "elapsed_ms": 175
+    },
+    {
+      "file": "sphynx__Sphynx_245.jpg",
+      "expected": "Sphynx",
+      "top1": "Sphynx",
+      "top1_prob": 0.9983,
+      "top1_is_pattern": false,
+      "top5": [
+        "Sphynx",
+        "Abyssinian",
+        "Tonkinese",
+        "Turkish Angora",
+        "Havana"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "no_cat",
+      "domestic_cat_score": 0.0779,
+      "wild_feline_score": 0.0053,
+      "elapsed_ms": 180
+    },
+    {
+      "file": "sphynx__Sphynx_47.jpg",
+      "expected": "Sphynx",
+      "top1": "Sphynx",
+      "top1_prob": 0.9985,
+      "top1_is_pattern": false,
+      "top5": [
+        "Sphynx",
+        "Abyssinian",
+        "Burmese",
+        "Egyptian Mau",
+        "Cornish Rex"
+      ],
+      "correct_top1": true,
+      "correct_top5": true,
+      "status": "no_cat",
+      "domestic_cat_score": 0.0211,
+      "wild_feline_score": 0.0032,
+      "elapsed_ms": 173
+    }
+  ]
+}

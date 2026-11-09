@@ -87,3 +87,15 @@ svc.sh
 runsvc.sh
 *.runner
 actions.runner.*.plist
+
+# ---- 모델 평가 / 로컬 실험 ----
+# 상위 디렉터리의 models/ vendor/ 를 가리키는 로컬 심볼릭 링크
+# (gitignore 의 'models/' 는 디렉터리만 걸러서 심볼릭 링크는 따로 적어야 한다)
+/models
+/vendor
+# 평가용 이미지와 내려받기 캐시 — 공개 데이터셋에서 스크립트로 재생성한다
+eval/data/
+eval/cache/
+# 배포 검증 모니터링 로그 (러너 작업 디렉터리에서 생성, Artifacts 로 업로드)
+monitor-logs/
+*.monitor.jsonl

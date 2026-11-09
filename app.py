@@ -41,6 +41,34 @@ WILD_FELINE_IDS = range(287, 295)  # cougar ~ cheetah
 CAT_PRESENT_THRESHOLD = 0.10  # 이 아래면 "고양이를 찾지 못함"으로 처리
 WILD_THRESHOLD = 0.25  # 야생 고양이과로 보이는 경우의 기준
 
+# 전처리 모드 — 재학습 없이 추론 전처리만 바꾼 개선안.
+#   legacy : 1.0.0 과 동일 (게이트 1뷰, 품종 1뷰, 종횡비 무시하고 224x224 로 늘림)
+#   v1     : 게이트 2뷰 평균 + 품종 좌우반전 TTA  (개선 시도 1회차 — 튜닝셋에서 악화되어 미채택)
+#   v2     : 게이트 2뷰 max + 품종 2뷰 평균(원래 늘린 뷰 + 종횡비 보존 패딩 뷰)
+# 값은 환경변수로 덮어쓸 수 있어 배포 후에도 즉시 이전 동작으로 되돌릴 수 있다.
+PREPROCESS_MODE = os.environ.get("PREPROCESS_MODE", "v2").strip().lower()
+if PREPROCESS_MODE not in {"legacy", "v1", "v2"}:
+    PREPROCESS_MODE = "v2"
+
+# 패딩 색: ImageNet 평균값에 해당하는 회색. 단색이라 모델이 물체로 보지 않는다.
+PAD_COLOR = (124, 116, 104)
+
+# 배포 버전 식별자. 무중단 배포 검증에서 "이 응답이 어느 버전에서 나왔는지" 를 구분하는 데 쓴다.
+APP_VERSION = "1.1.0"
+# 컨테이너 실행 시 -e IMAGE_TAG=sha-xxxxxxx 로 주입한다. 비어 있으면 로컬 실행이다.
+IMAGE_TAG = os.environ.get("IMAGE_TAG", "").strip()
+
+
+def version_info() -> dict[str, str]:
+    """모든 응답에 같은 형태로 실리는 배포 식별 정보."""
+    return {
+        "app": APP_VERSION,
+        "preprocess": PREPROCESS_MODE,
+        "image_tag": IMAGE_TAG or "local",
+        # 모니터가 한 글자만 보고도 전환을 감지할 수 있는 축약 키
+        "build": f"{APP_VERSION}+{PREPROCESS_MODE}@{IMAGE_TAG or 'local'}",
+    }
+
 # 모델 라벨 중 품종이 아니라 털색/무늬에 해당하는 항목
 PATTERN_LABELS = {
     "Calico", "Dilute Calico", "Dilute Tortoiseshell", "Tortoiseshell",
@@ -165,18 +193,60 @@ class ModelBundle:
             took, len(self.breed_labels), self.torch.get_num_threads(),
         )
 
+    @staticmethod
+    def _pad_square(image: Image.Image, side: int) -> Image.Image:
+        """종횡비를 유지한 채 정사각형으로 맞춘다. 잘려 나가는 영역이 없다."""
+        return ImageOps.pad(image, (side, side), method=Image.BICUBIC, color=PAD_COLOR)
+
+    def _mean_probs(self, model: Any, proc: Any, views: list[Image.Image]) -> Any:
+        """여러 뷰의 확률을 평균한다. 뷰가 하나면 기존 동작과 완전히 같다."""
+        total = None
+        for v in views:
+            inputs = proc(images=v, return_tensors="pt")
+            p = model(**inputs).logits.softmax(-1)[0]
+            total = p if total is None else total + p
+        return total / len(views)
+
     def predict(self, image: Image.Image) -> dict[str, Any]:
         torch = self.torch
 
+        # 게이트 전처리는 "짧은 변 256 -> 중앙 224 크롭" 이라 가로나 세로로 긴 사진에서는
+        # 가장자리가 잘려 고양이가 프레임 밖으로 나간다. 전체가 보이는 패딩 뷰를 더한다.
+        gate_views = [image]
+        if PREPROCESS_MODE != "legacy":
+            gate_views.append(self._pad_square(image, 256))
+
+        # 품종 전처리는 size={224,224} 고정이라 종횡비를 무시하고 늘린다.
+        #   v1 : 좌우반전 뷰를 더해 평균
+        #   v2 : 늘린 뷰(학습 분포와 동일) + 종횡비 보존 패딩 뷰를 평균
+        breed_views = [image]
+        if PREPROCESS_MODE == "v1":
+            breed_views.append(ImageOps.mirror(image))
+        elif PREPROCESS_MODE == "v2":
+            breed_views.append(self._pad_square(image, 224))
+
         with torch.inference_mode():
-            gate_in = self.gate_proc(images=image, return_tensors="pt")
-            gate_probs = self.gate_model(**gate_in).logits.softmax(-1)[0]
+            gate_each = [
+                self._mean_probs(self.gate_model, self.gate_proc, [v]) for v in gate_views
+            ]
+            breed_probs = self._mean_probs(self.breed_model, self.breed_proc, breed_views)
 
-            breed_in = self.breed_proc(images=image, return_tensors="pt")
-            breed_probs = self.breed_model(**breed_in).logits.softmax(-1)[0]
-
-        domestic = float(gate_probs[list(DOMESTIC_CAT_IDS)].sum())
-        wild = float(gate_probs[list(WILD_FELINE_IDS)].sum())
+        # 게이트는 "고양이가 찍혔는가"를 보는 탐지 단계다.
+        # 평균은 고양이가 작게 보이는 뷰가 점수를 끌어내려 오히려 재현율을 떨어뜨린다
+        # (v1 에서 확인: 0.099 -> 0.075). 그래서 뷰별 점수의 max 를 쓴다.
+        scores = [
+            (float(g[list(DOMESTIC_CAT_IDS)].sum()), float(g[list(WILD_FELINE_IDS)].sum()), g)
+            for g in gate_each
+        ]
+        if PREPROCESS_MODE == "v1":
+            gate_probs = sum(gate_each) / len(gate_each)
+            domestic = float(gate_probs[list(DOMESTIC_CAT_IDS)].sum())
+            wild = float(gate_probs[list(WILD_FELINE_IDS)].sum())
+        else:
+            domestic = max(s[0] for s in scores)
+            wild = max(s[1] for s in scores)
+            # 사용자에게 보여줄 "모델이 본 것" 라벨은 고양이 점수가 가장 높았던 뷰에서 가져온다.
+            gate_probs = max(scores, key=lambda s: s[0])[2]
 
         k = min(5, breed_probs.numel())
         top_probs, top_idx = breed_probs.topk(k)
@@ -196,6 +266,8 @@ class ModelBundle:
             "domestic_cat_score": round(domestic, 4),
             "wild_feline_score": round(wild, 4),
             "gate_top_label": str(self.gate_model.config.id2label.get(gate_top, gate_top)),
+            "preprocess_mode": PREPROCESS_MODE,
+            "views": {"gate": len(gate_views), "breed": len(breed_views)},
         }
 
 
@@ -208,7 +280,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="고양이 품종 추정기", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="고양이 품종 추정기", version=APP_VERSION, lifespan=lifespan)
 
 
 def confidence_level(p: float) -> tuple[str, str]:
@@ -264,6 +336,8 @@ async def health() -> dict[str, Any]:
             "gate": "google/mobilenet_v2_1.0_224 (ImageNet-1k)",
         },
         "device": "cpu",
+        "preprocess_mode": PREPROCESS_MODE,
+        "version": version_info(),
     }
 
 
@@ -353,11 +427,14 @@ async def analyze(file: UploadFile = File(default=None)) -> JSONResponse:
                 "height": image.height,
                 "size_bytes": len(raw),
             },
+            "version": version_info(),
             "model": {
                 "breed": "dima806/cat_breed_image_detection",
                 "breed_note": "ViT-base, 48개 라벨, 공개된 보고 정확도 약 77%",
                 "gate": "google/mobilenet_v2_1.0_224",
                 "device": "cpu",
+                "preprocess": PREPROCESS_MODE,
+                "views": result["views"],
             },
             "elapsed_ms": elapsed_ms,
         }

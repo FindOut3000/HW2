@@ -14,3 +14,8 @@ venv/
 *.docx
 *.pdf
 README.md
+
+# 평가/검증 자산 — 이미지 빌드에 쓰이지 않는다
+eval/
+scripts/
+monitor-logs/
