@@ -36,6 +36,8 @@ jobs:
 
     env:
       CONTAINER_NAME: cat-breed-estimator
+      PROXY_NAME: cat-breed-proxy
+      DOCKER_NET: catbreed-net
       HOST_PORT: '8000'
       PLATFORM: linux/amd64
       HEALTH_TIMEOUT_SEC: '720'
@@ -185,19 +187,6 @@ jobs:
             echo "::warning::실행 중인 컨테이너가 없어 배포 전 응답을 확인할 수 없습니다 (첫 배포). 그대로 진행합니다."
           fi
 
-      - name: 롤백용 현재 이미지 기록
-        id: prev
-        run: |
-          set -euo pipefail
-          prev=""
-          if docker inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
-            prev="$(docker inspect -f '{{.Image}}' "${CONTAINER_NAME}")"
-            echo "현재 컨테이너가 쓰는 이미지: ${prev}"
-          else
-            echo "실행 중인 ${CONTAINER_NAME} 컨테이너가 없습니다. (첫 배포)"
-          fi
-          echo "image_id=${prev}" >> "$GITHUB_OUTPUT"
-
       # pull 은 서비스를 건드리지 않으므로 아직 before 구간이다.
       - name: 이미지 내려받기
         run: |
@@ -212,8 +201,11 @@ jobs:
             echo "IMAGE_OVERRIDE=$LATEST" >> "$GITHUB_ENV"
           fi
 
-      # ─────────── 여기서부터 실제 서비스 변경 ───────────
-      - name: 컨테이너 교체
+      # ─────────── 여기서부터 실제 서비스 변경 (blue-green) ───────────
+      # 8000 번은 nginx 리버스 프록시가 계속 잡고 있고, 그 뒤에서 신·구 컨테이너를
+      # 겹쳐 띄운 뒤 upstream 만 바꿔치운다. nginx -s reload 는 기존 워커가 처리 중인
+      # 요청을 끝까지 보내고 교체되므로 연결이 끊기지 않는다.
+      - name: 새 색(color) 컨테이너 기동
         run: |
           set -euo pipefail
           printf 'during' > "${LOGDIR}/phase"
@@ -221,57 +213,129 @@ jobs:
           TAG="${IMAGE##*:}"
           echo "IMAGE_DEPLOYED=$IMAGE" >> "$GITHUB_ENV"
 
-          docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
-          others="$(docker ps -q --filter "publish=${HOST_PORT}")"
-          if [ -n "$others" ]; then
-            echo "::warning::${HOST_PORT} 포트를 쓰는 다른 컨테이너를 정리합니다: $others"
-            docker rm -f $others || true
-          fi
+          docker network inspect "${DOCKER_NET}" >/dev/null 2>&1 || docker network create "${DOCKER_NET}"
 
-          # IMAGE_TAG 는 응답의 version.build 에 실려 모니터가 버전 전환을 감지하는 근거가 된다.
+          active=""
+          docker ps --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}-blue"  && active=blue  || true
+          docker ps --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}-green" && active=green || true
+          if [ "$active" = "blue" ]; then target=green; else target=blue; fi
+          echo "현재 활성: ${active:-(없음)} → 새로 띄울 색: ${target}"
+          echo "ACTIVE_COLOR=${active}" >> "$GITHUB_ENV"
+          echo "TARGET_COLOR=${target}" >> "$GITHUB_ENV"
+          echo "ACTIVE_CONTAINER=${CONTAINER_NAME}-${target}" >> "$GITHUB_ENV"
+
+          # 새 색은 호스트 포트를 쓰지 않는다. 기존 색이 계속 서비스하는 동안 같이 떠 있는다.
+          docker rm -f "${CONTAINER_NAME}-${target}" 2>/dev/null || true
           docker run -d \
-            --name "${CONTAINER_NAME}" \
+            --name "${CONTAINER_NAME}-${target}" \
+            --network "${DOCKER_NET}" \
             --platform "${PLATFORM}" \
             --restart unless-stopped \
-            -p "${HOST_PORT}:8000" \
             -e "IMAGE_TAG=${TAG}" \
             "$IMAGE"
 
-          docker ps --filter "name=${CONTAINER_NAME}" \
-            --format '{{.Names}}  {{.Image}}  {{.Status}}  {{.Ports}}'
-
-      - name: 서비스 기동 대기 및 검증
-        run: |
-          set -euo pipefail
-          BASE="http://127.0.0.1:${HOST_PORT}"
+          echo "::group::새 컨테이너 내부 헬스 대기 (호스트 노출 없이 docker exec 로 확인)"
           deadline=$(( $(date +%s) + HEALTH_TIMEOUT_SEC ))
-          started=$(date +%s)
-
-          echo "::group::헬스 체크 대기 (${BASE}/api/health)"
           ready=0
           while [ "$(date +%s)" -lt "$deadline" ]; do
-            if ! docker ps -q --filter "name=${CONTAINER_NAME}" --filter "status=running" | grep -q .; then
-              echo "::error::컨테이너가 종료되었습니다."; break
+            if ! docker ps -q --filter "name=${CONTAINER_NAME}-${target}" --filter "status=running" | grep -q .; then
+              echo "::error::새 컨테이너가 종료되었습니다."; break
             fi
-            if curl -fsS "${BASE}/api/health" 2>/dev/null | grep -q '"ready": *true'; then
+            if docker exec "${CONTAINER_NAME}-${target}" \
+                 curl -fsS http://127.0.0.1:8000/api/health 2>/dev/null | grep -q '"ready": *true'; then
               ready=1; break
             fi
             sleep 3
           done
           echo "::endgroup::"
-          [ "$ready" -eq 1 ] || { echo "::error::${HEALTH_TIMEOUT_SEC}초 안에 서비스가 준비되지 않았습니다."; exit 1; }
-          echo "health OK ($(( $(date +%s) - started ))초 만에 준비)"
+          [ "$ready" -eq 1 ] || { echo "::error::새 컨테이너가 준비되지 않았습니다."; docker logs --tail 100 "${CONTAINER_NAME}-${target}"; exit 1; }
+          echo "새 컨테이너 준비 완료 — 아직 트래픽은 받지 않습니다."
 
+      - name: 프록시 전환 (무중단)
+        run: |
+          set -euo pipefail
+          PROXY_DIR="$HOME/.catbreed-deploy"
+          mkdir -p "$PROXY_DIR"
+          echo "PROXY_DIR=$PROXY_DIR" >> "$GITHUB_ENV"
+
+          # 이전 설정을 보관해 두면 롤백 때 그대로 되돌릴 수 있다.
+          [ -f "$PROXY_DIR/nginx.conf" ] && cp "$PROXY_DIR/nginx.conf" "$PROXY_DIR/nginx.conf.prev" || true
+
+          cat > "$PROXY_DIR/nginx.conf" <<EOF
+          events { worker_connections 1024; }
+          http {
+            access_log off;
+            upstream app_upstream { server ${CONTAINER_NAME}-${TARGET_COLOR}:8000; }
+            server {
+              listen 8000;
+              client_max_body_size 20m;
+              proxy_connect_timeout 5s;
+              proxy_send_timeout 120s;
+              proxy_read_timeout 120s;
+              location / {
+                proxy_pass http://app_upstream;
+                proxy_set_header Host \$host;
+                proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+              }
+            }
+          }
+          EOF
+          sed -i '' 's/^          //' "$PROXY_DIR/nginx.conf" 2>/dev/null || sed -i 's/^          //' "$PROXY_DIR/nginx.conf"
+
+          if docker ps --format '{{.Names}}' | grep -qx "${PROXY_NAME}"; then
+            # 평상시 경로: 설정만 바꾸고 graceful reload. 연결이 끊기지 않는다.
+            docker exec "${PROXY_NAME}" nginx -t
+            docker exec "${PROXY_NAME}" nginx -s reload
+            echo "프록시 upstream 전환: → ${CONTAINER_NAME}-${TARGET_COLOR} (graceful reload)"
+          else
+            # 최초 1회: 8000 을 쓰던 단일 컨테이너를 내리고 프록시를 올린다.
+            # 이 전환에서만 공백이 생기고, 이후 배포부터는 무중단이다.
+            echo "::warning::프록시가 없어 최초 구성을 수행합니다. 이번 전환에서만 짧은 공백이 생깁니다."
+            docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
+            others="$(docker ps -q --filter "publish=${HOST_PORT}")"
+            [ -n "$others" ] && docker rm -f $others || true
+            docker run -d \
+              --name "${PROXY_NAME}" \
+              --network "${DOCKER_NET}" \
+              --restart unless-stopped \
+              -p "${HOST_PORT}:8000" \
+              -v "$PROXY_DIR/nginx.conf:/etc/nginx/nginx.conf:ro" \
+              nginx:1.27-alpine
+          fi
+
+          for i in $(seq 1 30); do
+            curl -fsS "http://127.0.0.1:${HOST_PORT}/api/health" >/dev/null 2>&1 && break
+            sleep 1
+          done
+          docker ps --filter "name=cat-breed" --format '{{.Names}}  {{.Image}}  {{.Status}}  {{.Ports}}'
+
+      - name: 서비스 검증 (프록시 경유)
+        run: |
+          set -euo pipefail
+          BASE="http://127.0.0.1:${HOST_PORT}"
           echo "::group::서비스 응답 검증"
+          curl -fsS "${BASE}/api/health" | grep -q '"ready": *true' || { echo "::error::헬스 실패"; exit 1; }
           count=$(curl -fsS "${BASE}/api/breeds" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["count"])')
           [ "$count" = "48" ] || { echo "::error::라벨 수가 48이 아닙니다: $count"; exit 1; }
           code=$(curl -s -o /dev/null -w '%{http_code}' "${BASE}/")
           [ "$code" = "200" ] || { echo "::error::UI 기대 200, 실제 $code"; exit 1; }
           echo "라벨 48종 / UI 200 확인"
           curl -fsS "${BASE}/api/health" | /usr/bin/python3 -c \
-            'import json,sys; d=json.load(sys.stdin); print("배포된 버전:", d.get("version")); print("전처리 모드:", d.get("preprocess_mode"))'
-          echo "컨테이너 아키텍처: $(docker exec "${CONTAINER_NAME}" uname -m) / 사용자: $(docker exec "${CONTAINER_NAME}" id -un)"
+            'import json,sys; d=json.load(sys.stdin); print("프록시 뒤 배포 버전:", d.get("version"))'
+          echo "컨테이너 아키텍처: $(docker exec "${ACTIVE_CONTAINER}" uname -m) / 사용자: $(docker exec "${ACTIVE_CONTAINER}" id -un)"
           echo "::endgroup::"
+
+      - name: 이전 색 정리
+        run: |
+          set -euo pipefail
+          if [ -n "${ACTIVE_COLOR}" ] && [ "${ACTIVE_COLOR}" != "${TARGET_COLOR}" ]; then
+            # reload 직후 기존 워커가 처리 중인 요청을 끝낼 시간을 준다.
+            sleep 5
+            docker rm -f "${CONTAINER_NAME}-${ACTIVE_COLOR}" 2>/dev/null || true
+            echo "이전 색 제거: ${CONTAINER_NAME}-${ACTIVE_COLOR}"
+          else
+            echo "제거할 이전 색이 없습니다."
+          fi
 
       - name: 배포 완료 후 관측 유지
         run: |
@@ -282,28 +346,27 @@ jobs:
 
       - name: 실패 시 로그 수집 및 롤백
         if: failure() && env.IMAGE_DEPLOYED != ''
-        env:
-          PREV_IMAGE: ${{ steps.prev.outputs.image_id }}
         run: |
           set +e
           printf 'rollback' > "${LOGDIR}/phase"
-          echo "::group::컨테이너 로그 (마지막 200줄)"
-          docker logs --tail 200 "${CONTAINER_NAME}" 2>&1
+          echo "::group::새 컨테이너 로그 (마지막 200줄)"
+          docker logs --tail 200 "${CONTAINER_NAME}-${TARGET_COLOR}" 2>&1
           echo "::endgroup::"
-          docker inspect -f 'State={{.State.Status}} ExitCode={{.State.ExitCode}} Error={{.State.Error}}' "${CONTAINER_NAME}" 2>&1
+          docker inspect -f 'State={{.State.Status}} ExitCode={{.State.ExitCode}}' "${CONTAINER_NAME}-${TARGET_COLOR}" 2>&1
 
-          if [ -n "${PREV_IMAGE}" ]; then
-            echo "이전 이미지(${PREV_IMAGE})로 롤백합니다."
-            docker rm -f "${CONTAINER_NAME}"
-            docker run -d --name "${CONTAINER_NAME}" --platform "${PLATFORM}" \
-              --restart unless-stopped -p "${HOST_PORT}:8000" "${PREV_IMAGE}"
-            # 롤백한 서비스가 살아나는 것도 모니터가 관측하도록 잠시 기다린다.
-            sleep "${POST_DEPLOY_WATCH_SEC}"
-            docker ps --filter "name=${CONTAINER_NAME}" --format '롤백 후: {{.Image}}  {{.Status}}'
+          if [ -n "${ACTIVE_COLOR}" ] && docker ps -q --filter "name=${CONTAINER_NAME}-${ACTIVE_COLOR}" | grep -q .; then
+            echo "이전 색(${ACTIVE_COLOR})이 살아 있습니다. 프록시를 되돌립니다."
+            if [ -f "${PROXY_DIR}/nginx.conf.prev" ]; then
+              cp "${PROXY_DIR}/nginx.conf.prev" "${PROXY_DIR}/nginx.conf"
+              docker exec "${PROXY_NAME}" nginx -s reload
+            fi
+            docker rm -f "${CONTAINER_NAME}-${TARGET_COLOR}"
+            echo "롤백 완료 — ${CONTAINER_NAME}-${ACTIVE_COLOR} 가 계속 서비스합니다."
           else
-            echo "롤백할 이전 이미지가 없습니다. 실패한 컨테이너를 정리합니다."
-            docker rm -f "${CONTAINER_NAME}"
+            echo "되돌릴 이전 색이 없습니다. 실패한 컨테이너를 정리합니다."
+            docker rm -f "${CONTAINER_NAME}-${TARGET_COLOR}"
           fi
+          sleep "${POST_DEPLOY_WATCH_SEC}"
 
       # ─────────── 배포 성공/실패와 무관하게 로그와 요약을 남긴다 ───────────
       - name: 모니터링 종료
